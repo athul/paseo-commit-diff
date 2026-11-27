@@ -2,7 +2,9 @@
   "id": "paseo-commit-diff",
   "name": "Commit Diff",
   "description": "Browse any repository's commits by branch or tag and view a commit or a base...head range as a diff styled like Paseo's Changes view.",
-  "media": [],
+  "media": [
+    "assets/commits.png"
+  ],
   "requirements": {
     "paseo": ">=0.17.4"
   },
