@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { buildRows, type Expansion, fileTree, parseFilter, segments, wordDiff } from "../shared/diff-model";
 import type { FileDiff } from "../shared/git";
+import { matchTier, mergeOptions, rankRepos, shortenPath } from "../shared/repo-match";
 
 const file = (path: string, lines: string[] | null, extra: Partial<FileDiff> = {}): FileDiff => ({
   path, oldPath: null, status: "modified", additions: 0, deletions: 0, binary: false,
@@ -79,5 +80,22 @@ assert.deepEqual(parseFilter('fix login author:jane path:"src/a b.ts"'), { grep:
 assert.deepEqual(parseFilter("path:main.py"), { path: "main.py" });
 assert.deepEqual(parseFilter('"exact phrase" more'), { grep: "exact phrase more" });
 assert.equal(parseFilter("   "), undefined);
+
+// Repo picker ranking.
+const options = mergeOptions([
+  [{ path: "/h/UH/ehr", source: "workspace" }],
+  [{ path: "/h/UH/ehr/", source: "recent" }, { path: "/h/UH/infra/trantor", source: "recent" }],
+  [{ path: "/h/code/trantor-old", source: "found" }, { path: "/h/UH/terraform-refactor", source: "found" }],
+]);
+assert.equal(options.length, 4, "deduped, trailing slash normalised");
+assert.equal(options[0]?.source, "workspace", "first source wins");
+assert.deepEqual(rankRepos(options, "").map((o) => o.path), options.map((o) => o.path), "no query keeps recommended order");
+assert.deepEqual(rankRepos(options, "trantor").map((o) => o.path), ["/h/UH/infra/trantor", "/h/code/trantor-old"]);
+assert.deepEqual(rankRepos(options, "tfr").map((o) => o.path), ["/h/UH/terraform-refactor"], "fuzzy");
+assert.deepEqual(rankRepos(options, "~/elsewhere")[0], { path: "~/elsewhere", source: "typed" });
+assert.equal(matchTier("/a/UH", "uh"), 0);
+assert.equal(matchTier("/a/xyz", "q"), null);
+assert.equal(shortenPath("/h/UH/ehr", "/h"), "~/UH/ehr");
+assert.equal(shortenPath("/other", "/h"), "/other");
 
 console.log("ok: diff-model checks passed");

@@ -17,6 +17,7 @@
 import {
   type PluginWorkspacePanelProps,
   useAgents,
+  useProjects,
   useRpc,
   useSettings,
   useSubscription,
@@ -39,6 +40,7 @@ import {
 import { parseFilter } from "../shared/diff-model";
 import { CommitView } from "./commit-view";
 import { RefPicker } from "./ref-picker";
+import { RepoPicker } from "./repo-picker";
 import { IconButton, Notice, RADIUS, Row, SPACE } from "./row";
 import { ago, type CodeFont, dayLabel, formatCount, fullDate, shortSha, type Theme, UI, UI_SIZE, UI_SMALL, useCodeFont } from "./style";
 
@@ -173,7 +175,6 @@ export function CommitDiffPanel({ workspaceId, theme, layout, tab }: PluginWorks
         onOpen={open}
         theme={theme}
         compact={layout.compact}
-        font={font}
         s={s}
       />
       {body}
@@ -181,63 +182,95 @@ export function CommitDiffPanel({ workspaceId, theme, layout, tab }: PluginWorks
   );
 }
 
-/** Path box plus one-tap rows: workspace directory, agents' folders, recent repos. */
-function RepoBar({ workspaceId, current, directory, onOpen, theme, compact, font, s }: {
+/**
+ * Current repo as a button that opens Paseo-style "Open repository" picker,
+ * plus one-tap chips: this workspace, agents' folders, recent repos. Recent
+ * chips show a remove button on hover; the workspace and agent ones are live
+ * facts, not history, so they cannot be removed.
+ */
+function RepoBar({ workspaceId, current, directory, onOpen, theme, compact, s }: {
   workspaceId: string;
   current: string | null;
   directory: string | null;
   onOpen: (path: string) => void;
   theme: Theme;
   compact: boolean;
-  font: CodeFont;
   s: Styles;
 }) {
-  const [draft, setDraft] = useState(current ?? "");
-  useEffect(() => setDraft(current ?? ""), [current]);
+  const c = theme.colors;
+  const [picking, setPicking] = useState(false);
   const settings = useSettings(recentReposSettings);
   const recent = settings.status === "ready" ? settings.values.repos : [];
-  // Folders this workspace's agents work in (grouped by cwd: one key per folder).
-  const agentGroups = useAgents({ where: (agent) => agent.workspaceId === workspaceId, groupBy: (agent) => agent.cwd });
-  const agentDirs = agentGroups.map((group) => group.key).filter((dir) => dir && dir !== directory);
-  const chips: { path: string; icon: string; hint: string }[] = [];
+  const removeRecent = (path: string) => {
+    if (settings.status !== "ready") return;
+    void settings.save({ repos: settings.values.repos.filter((repo) => repo !== path) }, settings.revision);
+  };
+  // Folders this workspace's agents work in, and Paseo's git projects (grouped: one key per folder).
+  const agentDirs = useAgents({ where: (agent) => agent.workspaceId === workspaceId, groupBy: (agent) => agent.cwd })
+    .map((group) => group.key)
+    .filter((dir) => dir && dir !== directory);
+  const projectDirs = useProjects({ where: (project) => project.kind === "git", groupBy: (project) => project.rootPath })
+    .map((group) => group.key)
+    .filter(Boolean);
+
+  const chips: { path: string; icon: string; hint: string; removable: boolean }[] = [];
   const seen = new Set<string>();
-  const add = (path: string | null, icon: string, hint: string) => {
+  const add = (path: string | null, icon: string, hint: string, removable: boolean) => {
     if (!path || seen.has(path)) return;
     seen.add(path);
-    chips.push({ path, icon, hint });
+    chips.push({ path, icon, hint, removable });
   };
-  add(directory, "Monitor", "workspace");
-  for (const dir of agentDirs) add(dir, "Bot", "agent");
-  for (const path of recent) add(path, "FolderGit2", "recent");
+  add(directory, "Monitor", "workspace", false);
+  for (const dir of agentDirs) add(dir, "Bot", "agent", false);
+  for (const path of recent) add(path, "FolderGit2", "recent", true);
 
   return (
     <View style={s.bar}>
-      <View style={s.inputBox}>
-        <Icon name="FolderGit2" size={14} color={theme.colors.foregroundMuted} />
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          onSubmitEditing={() => draft.trim() && onOpen(draft.trim())}
-          placeholder="Repository path, then Enter"
-          placeholderTextColor={theme.colors.foregroundMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="go"
-          accessibilityLabel="Repository path"
-          style={[s.input, { fontFamily: font.family, fontSize: font.size }]}
-        />
-      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Repository: ${current ?? "none"}. Change`} onPress={() => setPicking(true)} style={s.repoButton}>
+        <Icon name="FolderGit2" size={16} color={c.foregroundMuted} />
+        <Text style={[s.repoButtonName, { fontFamily: UI }]} numberOfLines={1}>{current ? basename(current) : "Open repository"}</Text>
+        {current ? <Text style={[s.repoButtonPath, { fontFamily: UI }]} numberOfLines={1}>{current}</Text> : <View style={s.flex} />}
+        <Icon name="ChevronsUpDown" size={14} color={c.foregroundMuted} />
+      </Pressable>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-        {chips.map(({ path, icon, hint }) => {
+        {chips.map(({ path, icon, hint, removable }) => {
           const active = path === current;
           return (
             <Row key={path} theme={theme} compact={compact} label={`Open ${path} (${hint})`} selected={active} onPress={() => onOpen(path)} style={s.chip}>
-              <Icon name={icon} size={14} color={active ? theme.colors.foreground : theme.colors.foregroundMuted} />
-              <Text style={[s.chipText, { fontFamily: UI }, active && s.foreground]} numberOfLines={1}>{basename(path)}</Text>
+              {({ hovered }) => (
+                <>
+                  <Icon name={icon} size={14} color={active ? c.foreground : c.foregroundMuted} />
+                  <Text style={[s.chipText, { fontFamily: UI }, active && s.foreground]} numberOfLines={1}>{basename(path)}</Text>
+                  {removable ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${path} from recent`}
+                      onPress={() => removeRecent(path)}
+                      hitSlop={6}
+                      style={{ opacity: hovered ? 1 : 0, marginLeft: -SPACE[0.5] }}
+                    >
+                      <Icon name="X" size={12} color={c.foregroundMuted} />
+                    </Pressable>
+                  ) : null}
+                </>
+              )}
             </Row>
           );
         })}
       </ScrollView>
+      <RepoPicker
+        open={picking}
+        onClose={() => setPicking(false)}
+        onOpen={onOpen}
+        onRemoveRecent={removeRecent}
+        current={current}
+        workspaceDir={directory}
+        projectDirs={projectDirs}
+        agentDirs={agentDirs}
+        recent={recent}
+        theme={theme}
+        compact={compact}
+      />
     </View>
   );
 }
@@ -470,6 +503,12 @@ function useStyles(theme: Theme) {
       split: { flex: 1, flexDirection: "row" },
       listPane: { width: 360, borderRightWidth: 1, borderRightColor: c.border },
       bar: { paddingHorizontal: SPACE[3], paddingVertical: SPACE[2], gap: SPACE[2], borderBottomWidth: 1, borderBottomColor: c.border },
+      repoButton: {
+        flexDirection: "row", alignItems: "center", gap: SPACE[2], height: 36, paddingHorizontal: SPACE[3],
+        borderWidth: 1, borderColor: c.border, borderRadius: RADIUS.md, backgroundColor: c.surface1,
+      },
+      repoButtonName: { color: c.foreground, fontSize: UI_SIZE, fontWeight: "500", flexShrink: 0, maxWidth: 220 },
+      repoButtonPath: { flex: 1, color: c.foregroundMuted, fontSize: UI_SMALL },
       inputBox: {
         flexDirection: "row", alignItems: "center", gap: SPACE[2],
         paddingLeft: SPACE[2], paddingRight: SPACE[0.5], height: 32,

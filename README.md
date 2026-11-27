@@ -6,7 +6,7 @@ Paseo's built-in diff shows what changed in your working tree. Commit Diff cover
 
 ## Features
 
-- **Any repository.** It doesn't have to be the workspace's own. Type a path, or pick the workspace folder, a folder one of the workspace's agents is working in, or a recently opened repo.
+- **Any repository.** It doesn't have to be the workspace's own. A picker modelled on Paseo's Add project dialog searches the workspace folder, your Paseo projects, your agents' folders, recent repos (removable) and git repositories found under your home folder, or opens a typed path.
 - **Any ref.** Browse local branches, remote branches and tags without checking them out.
 - **Search.** Search commit messages, or use `author:name` and `path:file` (quote paths with spaces: `path:"docs/a b.md"`). Each file header has a History button.
 - **Compare.** Pick two commits or refs, or compare the current branch with the default branch in one click. You get the combined `base...head` diff, as a pull request shows it, plus the list of commits in it.
@@ -42,6 +42,7 @@ Paseo doesn't share its Appearance settings with plugins, so **Settings → Comm
 
 Plugins run unsandboxed on the daemon machine, so here is exactly what this one does:
 
+- To suggest repositories it lists folder names under the home folder (and reads a found repo's `.git/config` only to detect a bare repo): breadth-first, at most 4 levels, skipping hidden/dependency/build folders, capped at 15,000 folders and 3 seconds, cached for a minute. Bare repositories are skipped, but their worktrees are found.
 - It only runs read-only git commands (`log`, `show`, `diff`, `for-each-ref`, `merge-base`, `cat-file`, `format-patch --stdout`, `rev-parse`). It never fetches, pushes, checks out or writes to a repository.
 - git is run directly with an argument list, never through a shell.
 - Everything the tab sends is checked before git sees it:
@@ -67,10 +68,12 @@ paseo plugin logs paseo-commit-diff
 | Path | Runs in | What |
 |---|---|---|
 | `server/git.ts` | daemon | git handlers and the `.git` watcher |
+| `server/discover.ts` | daemon | finds git repositories under the home folder for the picker |
 | `server/patch.ts` | daemon | splits `git show` / `git diff` output into one entry per file |
 | `server/highlight.ts` | daemon | syntax tokens via `@getpaseo/highlight` |
 | `shared/git.ts` | both | the contracts between app and daemon (Zod), plus settings |
 | `shared/diff-model.ts` | both | pure layout: file tree, unified/split rows, context gaps, word changes |
+| `shared/repo-match.ts` | both | repo picker ranking |
 | `client/` | app | the tab, commit/range view, ref picker, settings page |
 
 One thing to know if you change the styling: in Paseo's web app, a `fontFamily` set through `StyleSheet.create` in a plugin is ignored. Monospace fonts are therefore set inline.
@@ -81,6 +84,7 @@ One thing to know if you change the styling: in Paseo's web app, a `fontFamily` 
 - With wrapping off, the whole diff scrolls sideways together rather than file by file.
 - A renamed file shows as added after **Load full diff**.
 - `j`/`k` only work after you've clicked inside the tab.
+- Paseo's native Browse folder dialog isn't available to plugins; repositories deeper than the scan can be opened by typing their path.
 
 ## License
 

@@ -208,6 +208,22 @@ export const watchRepoSubscription = defineSubscription({
   event: z.object({ type: z.literal("changed") }),
 });
 
+/**
+ * Git repositories found under the daemon user's home directory, for the repo
+ * picker's suggestions. Only directory names are read (no file contents); the
+ * scan is depth- and time-bounded and skips hidden, dependency and build folders.
+ */
+export const discoverReposRpc = defineRpc({
+  name: "repos.discover",
+  input: z.object({}),
+  output: z.object({
+    home: z.string(),
+    repos: z.array(z.string()),
+    /** The scan hit its time or size limit; deeper repos may be missing. */
+    truncated: z.boolean(),
+  }),
+});
+
 /** Repositories recently opened in the panel, newest first, shared across workspaces. */
 export const recentReposSettings = defineSettings({
   id: "recent-repos",
